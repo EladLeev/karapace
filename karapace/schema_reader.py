@@ -447,10 +447,10 @@ class KafkaSchemaReader(Thread):
         if not value:
             self._handle_msg_schema_hard_delete(key)
             return
-
         schema_type = value.get("schemaType", "AVRO")
         schema_str = value["schema"]
         schema_subject = value["subject"]
+        schema_metadata = value["schemaMetadata"]
         schema_id = value["id"]
         schema_version = value["version"]
         schema_deleted = value.get("deleted", False)
@@ -497,14 +497,17 @@ class KafkaSchemaReader(Thread):
                 LOG.exception("Invalid Protobuf references")
                 return
 
+        # Load schema metadata, if provided
+        if schema_metadata is not None:
+            try:
+                schema_metadata = json.dumps(json.loads(schema_metadata), sort_keys=True)
+            except json.JSONDecodeError:
+                LOG.error("Schema metadata is not valid JSON")
+                return
+
         try:
-            typed_schema = TypedSchema(
-                schema_type=schema_type_parsed,
-                schema_str=schema_str,
-                references=resolved_references,
-                dependencies=resolved_dependencies,
-                schema=parsed_schema,
-            )
+            typed_schema = TypedSchema(schema_type=schema_type_parsed, schema_str=schema_str, schema=parsed_schema,
+                                       schema_metadata_str=schema_metadata, references=resolved_references, dependencies=resolved_dependencies)
         except (InvalidSchema, JSONDecodeError):
             return
 

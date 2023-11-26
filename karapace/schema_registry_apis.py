@@ -957,7 +957,7 @@ class KarapaceSchemaRegistryController(KarapaceBase):
                 status=HTTPStatus.BAD_REQUEST,
             )
         for field in body:
-            if field not in {"schema", "schemaType", "references"}:
+            if field not in {"schema", "schemaType", "schemaMetadata", "references"}:
                 self.r(
                     body={
                         "error_code": SchemaErrorCodes.HTTP_UNPROCESSABLE_ENTITY.value,
@@ -966,6 +966,19 @@ class KarapaceSchemaRegistryController(KarapaceBase):
                     content_type=content_type,
                     status=HTTPStatus.UNPROCESSABLE_ENTITY,
                 )
+
+    def _validate_schema_metadata_type(self, content_type: str, data: JsonData) -> str | None:
+        if not isinstance(data, dict):
+            self.r(
+                body={
+                    "error_code": SchemaErrorCodes.HTTP_BAD_REQUEST.value,
+                    "message": "Malformed request",
+                },
+                content_type=content_type,
+                status=HTTPStatus.BAD_REQUEST,
+            )
+
+        return data.get("schemaMetadata", None)
 
     def _validate_schema_type(self, content_type: str, data: JsonData) -> SchemaType:
         if not isinstance(data, dict):
@@ -1170,6 +1183,7 @@ class KarapaceSchemaRegistryController(KarapaceBase):
         self._validate_schema_request_body(content_type, body)
         schema_type = self._validate_schema_type(content_type, body)
         self._validate_schema_key(content_type, body)
+        schema_metadata_str = self._validate_schema_metadata_type(content_type, body)
         references = self._validate_references(content_type, schema_type, body)
 
         try:
@@ -1177,6 +1191,7 @@ class KarapaceSchemaRegistryController(KarapaceBase):
             new_schema = ValidatedTypedSchema.parse(
                 schema_type=schema_type,
                 schema_str=body["schema"],
+                schema_metadata_str=schema_metadata_str,
                 references=references,
                 dependencies=resolved_dependencies,
             )

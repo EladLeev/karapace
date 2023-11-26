@@ -24,13 +24,16 @@ from karapace.schema_references import Reference
 from karapace.schema_type import SchemaType
 from karapace.typing import JsonObject, ResolvedVersion, SchemaId, Subject
 from karapace.utils import assert_never, json_decode, json_encode, JSONDecodeError
-from typing import Any, cast, Dict, Final, final, Mapping, Sequence
+from typing import Any, cast, Dict, Final, final, Mapping, Sequence, Optional
 
 import hashlib
 import logging
 
 LOG = logging.getLogger(__name__)
 
+
+def parse_schema_metadata(s: str) -> JsonObject:
+    return json_decode(s)
 
 def parse_avro_schema_definition(s: str, validate_enum_symbols: bool = True, validate_names: bool = True) -> AvroSchema:
     """Compatibility function with Avro which ignores trailing data in JSON
@@ -84,6 +87,7 @@ class TypedSchema:
         schema_type: SchemaType,
         schema_str: str,
         schema: Draft7Validator | AvroSchema | ProtobufSchema | None = None,
+        schema_metadata_str: str | None = None,
         references: Sequence[Reference] | None = None,
         dependencies: Mapping[str, Dependency] | None = None,
     ) -> None:
@@ -99,6 +103,7 @@ class TypedSchema:
         self.references: Final = references
         self.dependencies: Final = dependencies
         self.schema_str: Final = TypedSchema.normalize_schema_str(schema_str, schema_type, schema)
+        self.schema_metadata_str: Final = schema_metadata_str
         self.max_id: SchemaId | None = None
         self._fingerprint_cached: str | None = None
 
@@ -173,11 +178,15 @@ def parse(
     schema_str: str,
     validate_avro_enum_symbols: bool,
     validate_avro_names: bool,
+    schema_metadata_str=Optional[str],
     references: Sequence[Reference] | None = None,
     dependencies: Mapping[str, Dependency] | None = None,
 ) -> ParsedTypedSchema:
     if schema_type not in [SchemaType.AVRO, SchemaType.JSONSCHEMA, SchemaType.PROTOBUF]:
         raise InvalidSchema(f"Unknown parser {schema_type} for {schema_str}")
+
+    if schema_metadata_str is not None:
+        schema_metadata_str = parse_schema_metadata(schema_metadata_str)
 
     parsed_schema: Draft7Validator | AvroSchema | ProtobufSchema
     if schema_type is SchemaType.AVRO:
@@ -214,9 +223,11 @@ def parse(
     else:
         raise InvalidSchema(f"Unknown parser {schema_type} for {schema_str}")
 
+
     return ParsedTypedSchema(
         schema_type=schema_type,
         schema_str=schema_str,
+        schema_metadata_str=schema_metadata_str,
         schema=parsed_schema,
         references=references,
         dependencies=dependencies,
@@ -247,18 +258,14 @@ class ParsedTypedSchema(TypedSchema):
         schema_type: SchemaType,
         schema_str: str,
         schema: Draft7Validator | AvroSchema | ProtobufSchema,
+        schema_metadata_str: str | None = None,
         references: Sequence[Reference] | None = None,
         dependencies: Mapping[str, Dependency] | None = None,
     ) -> None:
         self._schema_cached: Draft7Validator | AvroSchema | ProtobufSchema | None = schema
 
-        super().__init__(
-            schema_type=schema_type,
-            schema_str=schema_str,
-            references=references,
-            dependencies=dependencies,
-            schema=schema,
-        )
+        super().__init__(schema_type=schema_type, schema_str=schema_str, schema=schema, references=references,
+                         schema_metadata_str=schema_metadata_str, dependencies=dependencies)
 
     @staticmethod
     def parse(
@@ -316,12 +323,14 @@ class ValidatedTypedSchema(ParsedTypedSchema):
         schema_type: SchemaType,
         schema_str: str,
         schema: Draft7Validator | AvroSchema | ProtobufSchema,
+        schema_metadata_str: str | None = None,
         references: list[Reference] | None = None,
         dependencies: dict[str, Dependency] | None = None,
     ) -> None:
         super().__init__(
             schema_type=schema_type,
             schema_str=schema_str,
+            schema_metadata_str=schema_metadata_str,
             references=references,
             dependencies=dependencies,
             schema=schema,
@@ -331,6 +340,7 @@ class ValidatedTypedSchema(ParsedTypedSchema):
     def parse(
         schema_type: SchemaType,
         schema_str: str,
+        schema_metadata_str: str | None = None,
         references: Sequence[Reference] | None = None,
         dependencies: Mapping[str, Dependency] | None = None,
     ) -> ValidatedTypedSchema:
@@ -339,6 +349,7 @@ class ValidatedTypedSchema(ParsedTypedSchema):
             schema_str=schema_str,
             validate_avro_enum_symbols=True,
             validate_avro_names=True,
+            schema_metadata_str=schema_metadata_str,
             references=references,
             dependencies=dependencies,
         )
